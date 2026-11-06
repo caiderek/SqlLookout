@@ -4,6 +4,8 @@ English | [繁體中文](README.zh-TW.md)
 
 A SQL Server monitoring tool. Work in progress: version 0.9.x, expect rough edges.
 
+Search terms: SQL Server monitoring, wait stats, blocking, deadlock, slow queries, backup check, DBCC CHECKDB, Always On, log shipping, disk space alert, DBA tool, MCP server.
+
 It connects to your SQL Server instances from one machine, with a read-only login, and installs nothing on them.
 You set it up in a web page. It keeps history in a local SQLite file and sends email (and, if you want, a Teams message) when something needs attention.
 
