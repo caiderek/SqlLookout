@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SqlLookout.Core/SqlLookout.Core.csproj" />
+    <Project Path="src/SqlLookout.Storage/SqlLookout.Storage.csproj" />
+    <Project Path="src/SqlLookout.Alerts/SqlLookout.Alerts.csproj" />
+    <Project Path="src/SqlLookout.Service/SqlLookout.Service.csproj" />
+    <Project Path="src/SqlLookout.Web/SqlLookout.Web.csproj" />
+    <Project Path="src/SqlLookout.Mcp/SqlLookout.Mcp.csproj" />
+    <Project Path="src/SqlLookout.Cli/SqlLookout.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SqlLookout.Tests/SqlLookout.Tests.csproj" />
+  </Folder>
+</Solution>

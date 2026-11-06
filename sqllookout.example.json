@@ -1,0 +1,63 @@
+{
+  // Copy this file to sqllookout.json next to sqllookout.exe and edit it.
+  // Comments and trailing commas are allowed.
+
+  // Where history is kept (relative paths are relative to this file). Old data is deleted after retentionDays.
+  "database": "sqllookout.db",
+  "retentionDays": 90,
+
+  "instances": [
+    {
+      // Windows authentication: the connection string may sit in this file because it holds no password.
+      // Encrypt=False is for old servers (2008 / 2008 R2) that cannot negotiate modern TLS; use Encrypt=True
+      // with TrustServerCertificate=True where the server supports it.
+      "name": "prod-01",
+      "connectionString": "Server=PROD01;Database=master;Integrated Security=true;Encrypt=False"
+    },
+    {
+      // SQL authentication: the password must NOT be in this file. Put the whole connection string in a
+      // separate file that only the service account can read. The tool refuses a password in this file.
+      "name": "legacy-2008",
+      "connectionStringFile": "C:\\SqlLookout\\secrets\\legacy-2008.txt"
+    }
+  ],
+
+  // Optional: seconds between runs per collector and collectors to switch off.
+  "intervalsSeconds": { "log_usage": 60, "disk_space": 300 },
+  "disabledCollectors": [],
+
+  "alerts": {
+    // Without "email", alerts are only written to the console / service log.
+    "email": {
+      "host": "smtp.example.local",
+      "port": 25,
+      "useSsl": false,
+      // "user": "alerts@example.local",
+      // "passwordFile": "C:\\SqlLookout\\secrets\\smtp-password.txt",
+      "from": "sqllookout@example.local",
+      "to": [ "dba@example.local" ]
+    },
+
+    // Also post alerts to a Teams webhook (a Workflows flow). The address is a secret: keep it in an environment variable or a file, never in this file.
+    // "teams": { "urlEnv": "SQLLOOKOUT_TEAMS_URL" },
+
+    // The same problem is mailed again after this many hours while it stays active.
+    "renotifyHours": 4,
+
+    // Local time. Inside this window warnings wait; criticals still go out. Remove both lines for no quiet hours.
+    "quietStart": "22:00",
+    "quietEnd": "07:00",
+
+    // Local time of the daily "still alive" mail. Remove the line to turn it off.
+    "summaryTime": "08:00",
+
+    // Switch whole rule groups off: backup, dbcc, disk, log, database_state, suspect_pages, jobs
+    "disabledRules": [],
+
+    // Only list what you want to change.
+    "thresholds": {
+      // "fullBackupWarnHours": 26,
+      // "diskWarnFreeGb": 10
+    }
+  }
+}

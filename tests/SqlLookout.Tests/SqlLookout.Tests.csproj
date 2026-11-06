@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.13" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SqlLookout.Core\SqlLookout.Core.csproj" />
+    <ProjectReference Include="..\..\src\SqlLookout.Storage\SqlLookout.Storage.csproj" />
+    <ProjectReference Include="..\..\src\SqlLookout.Service\SqlLookout.Service.csproj" />
+    <ProjectReference Include="..\..\src\SqlLookout.Web\SqlLookout.Web.csproj" />
+    <ProjectReference Include="..\..\src\SqlLookout.Mcp\SqlLookout.Mcp.csproj" />
+    <!-- Built first so the end-to-end MCP test can start the real program; nothing from it is referenced. -->
+    <ProjectReference Include="..\..\src\SqlLookout.Cli\SqlLookout.Cli.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

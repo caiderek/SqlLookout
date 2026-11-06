@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+CLAUDE.md
+
+# Local data and real configuration
+*.db
+*.db-shm
+*.db-wal
+sqllookout.json
+secrets/
+dist/

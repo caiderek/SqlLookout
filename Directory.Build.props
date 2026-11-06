@@ -1,0 +1,17 @@
+<Project>
+
+  <PropertyGroup>
+    <Version>0.9.23</Version>
+    <Authors>Derek</Authors>
+    <Company>Derek</Company>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/caiderek/SqlLookout</RepositoryUrl>
+  </PropertyGroup>
+
+  <!-- Release builds carry no build-machine paths and no symbol files. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+  </PropertyGroup>
+
+</Project>
