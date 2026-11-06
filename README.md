@@ -1,5 +1,7 @@
 # SqlLookout
 
+English | [繁體中文](README.zh-TW.md)
+
 A SQL Server monitoring tool. Work in progress: version 0.9.x, expect rough edges.
 
 It connects to your SQL Server instances from one machine, with a read-only login, and installs nothing on them.
