@@ -2,6 +2,8 @@
 
 English | [繁體中文](README.zh-TW.md)
 
+Website: https://caiderek.github.io/SqlLookout/
+
 A SQL Server monitoring tool. Work in progress: version 0.9.x, expect rough edges.
 
 Search terms: SQL Server monitoring, wait stats, blocking, deadlock, slow queries, backup check, DBCC CHECKDB, Always On, log shipping, disk space alert, DBA tool, MCP server.

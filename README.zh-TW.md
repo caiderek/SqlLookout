@@ -2,6 +2,8 @@
 
 [English](README.md) | 繁體中文
 
+網站:https://caiderek.github.io/SqlLookout/zh-tw/
+
 SQL Server 監控工具。仍在開發中(0.9.x),有些地方還不夠完善。
 
 關鍵字:SQL Server 監控、效能監控、等待事件、阻塞、死結、慢查詢、備份檢查、DBCC CHECKDB、Always On 可用性群組、記錄傳送、磁碟空間警示、DBA 工具、MCP 伺服器。
