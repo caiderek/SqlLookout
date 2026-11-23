@@ -116,10 +116,11 @@ service and let an IIS site on **the same machine** forward to it. The usual rea
    which also writes `cert.cer`, then switch to `--listen 127.0.0.1` by uninstalling and installing again with
    `--data C:\ProgramData\SqlLookout` so the data is kept.
 2. Install the IIS modules **URL Rewrite** and **Application Request Routing (ARR)** from Microsoft.
-3. In an administrator PowerShell, turn on ARR's proxy and allow the two headers the rule sets:
+3. In an administrator PowerShell, turn on ARR's proxy and allow the three headers the rule sets:
 
    ```
    & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_FOR']" /commit:apphost
    & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_PROTO']" /commit:apphost
    & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_HOST']" /commit:apphost
    ```
@@ -144,10 +145,11 @@ service and let an IIS site on **the same machine** forward to it. The usual rea
            <rule name="SqlLookout" stopProcessing="true">
              <match url="(.*)" />
              <serverVariables>
+               <set name="HTTP_X_FORWARDED_FOR" value="{REMOTE_ADDR}" />
                <set name="HTTP_X_FORWARDED_PROTO" value="https" />
                <set name="HTTP_X_FORWARDED_HOST" value="{HTTP_HOST}" />
              </serverVariables>
-             <action type="Rewrite" url="https://127.0.0.1:8443/{R:1}" />
+             <action type="Rewrite" url="https://127.0.0.1:8443{UNENCODED_URL}" appendQueryString="false" />
            </rule>
          </rules>
        </rewrite>
@@ -160,9 +162,11 @@ service and let an IIS site on **the same machine** forward to it. The usual rea
 
 * SqlLookout believes the `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers only from a proxy on
   this machine; from anywhere else they are ignored. A proxy on another machine is not supported.
-* ARR sends the visitor's address in `X-Forwarded-For` (ARR's proxy setting "Preserve client IP", on by default).
-  Leave it on: without it every visitor looks like this machine, and the first-time setup page, which is otherwise only
-  open on the server itself, would open for anyone until the administrator account exists. Create that account first.
+* The rule puts the visitor's address in `X-Forwarded-For` and replaces anything the visitor sent there. Keep that line:
+  without it every visitor looks like this machine, and the first-time setup page, which is otherwise only open on the
+  server itself, would open for anyone until the administrator account exists. Create that account before you open the site.
+* `{UNENCODED_URL}` passes the address on exactly as it came, so a named instance such as `SQL01\SALES` in a page
+  address still arrives intact.
 * Give SqlLookout a site or host name of its own. It cannot live under a path such as `/sqllookout/` of another site.
 
 ## Reading the pages

@@ -100,10 +100,11 @@ SqlLookout 不能直接加進 IIS 當成網站應用程式。網頁和監控在�
    已經裝過的話,先用有這一節的版本執行 `sqllookout.exe upgrade`(它也會產生 `cert.cer`),
    再解除安裝、加上 `--data C:\ProgramData\SqlLookout` 重新安裝並改成 `--listen 127.0.0.1`,資料就會保留。
 2. 從 Microsoft 安裝 IIS 模組 **URL Rewrite** 和 **Application Request Routing(ARR)**。
-3. 以系統管理員開啟 PowerShell,打開 ARR 的轉送功能,並允許規則要設定的兩個標頭:
+3. 以系統管理員開啟 PowerShell,打開 ARR 的轉送功能,並允許規則要設定的三個標頭:
 
    ```
    & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_FOR']" /commit:apphost
    & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_PROTO']" /commit:apphost
    & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_HOST']" /commit:apphost
    ```
@@ -128,10 +129,11 @@ SqlLookout 不能直接加進 IIS 當成網站應用程式。網頁和監控在�
            <rule name="SqlLookout" stopProcessing="true">
              <match url="(.*)" />
              <serverVariables>
+               <set name="HTTP_X_FORWARDED_FOR" value="{REMOTE_ADDR}" />
                <set name="HTTP_X_FORWARDED_PROTO" value="https" />
                <set name="HTTP_X_FORWARDED_HOST" value="{HTTP_HOST}" />
              </serverVariables>
-             <action type="Rewrite" url="https://127.0.0.1:8443/{R:1}" />
+             <action type="Rewrite" url="https://127.0.0.1:8443{UNENCODED_URL}" appendQueryString="false" />
            </rule>
          </rules>
        </rewrite>
@@ -143,8 +145,9 @@ SqlLookout 不能直接加進 IIS 當成網站應用程式。網頁和監控在�
 
 * SqlLookout 只相信本機轉送程式送來的 `X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Host` 標頭,其他來源送的一律不理。
   不支援轉送程式放在另一台電腦。
-* ARR 會把訪客的位址放在 `X-Forwarded-For` 裡(ARR 轉送設定中的「Preserve client IP」,預設開啟)。請保持開啟:
-  關掉的話,每個訪客看起來都像是本機,原本只能在伺服器本機開的首次設定頁,在管理員帳號建立前任何人都能開。請先建立管理員帳號。
+* 規則會把訪客的位址放進 `X-Forwarded-For`,並蓋掉訪客自己送來的內容。請保留這一行:少了它,每個訪客看起來都像是本機,
+  原本只能在伺服器本機開的首次設定頁,在管理員帳號建立前任何人都能開。請在開放站台前先建立管理員帳號。
+* `{UNENCODED_URL}` 會把網址原封不動轉過去,所以網址裡像 `SQL01\SALES` 這樣的具名執行個體也能正確送達。
 * 請給 SqlLookout 一個獨立的站台或主機名稱,不能放在其他站台的子路徑(例如 `/sqllookout/`)底下。
 
 ## 看懂各頁面

@@ -60,6 +60,10 @@ public class ProxyTests : IAsyncLifetime
         var spoofed = await SendAsync("/setup", "127.0.0.1, 10.1.2.3");
         Assert.Equal(HttpStatusCode.Forbidden, spoofed.StatusCode);
 
+        // ARR can send the address with the client's port.
+        var withPort = await SendAsync("/setup", "10.1.2.3:54321");
+        Assert.Equal(HttpStatusCode.Forbidden, withPort.StatusCode);
+
         var local = await SendAsync("/setup", "127.0.0.1");
         Assert.Equal(HttpStatusCode.OK, local.StatusCode);
     }
