@@ -42,6 +42,7 @@ public static class CertificateProvider
                 if (existing.NotAfter > DateTime.Now + RenewWithin)
                 {
                     source = $"self-signed certificate ({pfx})";
+                    WritePublicCopy(dataDirectory, existing);
                     return existing;
                 }
                 existing.Dispose();
@@ -56,7 +57,28 @@ public static class CertificateProvider
         File.WriteAllBytes(pfx, created.Export(X509ContentType.Pfx, password2));
         File.WriteAllText(key, protector.Protect(password2));
         source = $"new self-signed certificate ({pfx})";
-        return X509CertificateLoader.LoadPkcs12FromFile(pfx, password2);
+        var loaded = X509CertificateLoader.LoadPkcs12FromFile(pfx, password2);
+        WritePublicCopy(dataDirectory, loaded);
+        return loaded;
+    }
+
+    /// <summary>
+    /// cert.cer is the public half of the self-signed certificate (no private key, nothing secret), so a reverse proxy
+    /// on this machine such as IIS can be told to trust it. Rewritten only when it does not match the certificate in use.
+    /// </summary>
+    private static void WritePublicCopy(string dataDirectory, X509Certificate2 certificate)
+    {
+        var path = Path.Combine(dataDirectory, "cert.cer");
+        var bytes = certificate.Export(X509ContentType.Cert);
+        try
+        {
+            if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return;
+            File.WriteAllBytes(path, bytes);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Only a convenience for setting up a proxy: the web interface still starts without it.
+        }
     }
 
     private static X509Certificate2 CreateSelfSigned(out string password)

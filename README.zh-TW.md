@@ -90,6 +90,63 @@ sqllookout.exe install --store-connection-file C:\temp\store.txt
 * 程式每次使用前會檢查連線,網路中斷或伺服器重啟後會重新連線。
 * 用 `--store-connection-file` 啟動的 MCP 伺服器是唯讀的:程式會拒絕這條連線上的所有寫入。要多一層保護,可以只授予它的登入 `db_datareader`。
 
+### 放在 IIS 後面(選用)
+
+SqlLookout 不能直接加進 IIS 當成網站應用程式。網頁和監控在同一個程式裡,IIS 會在沒人連線時停掉應用程式,也會定期回收重啟,
+這時檢查和警報也會跟著停。做法是保留 Windows 服務,讓**同一台電腦**上的 IIS 站台把請求轉送給它。
+常見的原因是想用公司的憑證和網址(`https://sqllookout.example.com/`)走 443 埠;這樣 Claude Code 這類遠端 MCP 用戶端也會信任這個位址。
+
+1. 安裝 SqlLookout,只讓本機連得到:`sqllookout.exe install --listen 127.0.0.1`(不會新增防火牆規則)。
+   已經裝過的話,先用有這一節的版本執行 `sqllookout.exe upgrade`(它也會產生 `cert.cer`),
+   再解除安裝、加上 `--data C:\ProgramData\SqlLookout` 重新安裝並改成 `--listen 127.0.0.1`,資料就會保留。
+2. 從 Microsoft 安裝 IIS 模組 **URL Rewrite** 和 **Application Request Routing(ARR)**。
+3. 以系統管理員開啟 PowerShell,打開 ARR 的轉送功能,並允許規則要設定的兩個標頭:
+
+   ```
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_PROTO']" /commit:apphost
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_HOST']" /commit:apphost
+   ```
+
+4. IIS 會檢查 SqlLookout 的憑證,本機不信任自簽憑證時會拒絕(出現 502 錯誤)。
+   SqlLookout 會把憑證的公開部分存成資料資料夾裡的 `cert.cer`(不含私鑰),把它匯入本機信任清單:
+
+   ```
+   Import-Certificate -FilePath C:\ProgramData\SqlLookout\cert.cer -CertStoreLocation Cert:\LocalMachine\Root
+   ```
+
+   自簽憑證效期 5 年,到期前 30 天會換新,換新後要再匯入一次新的 `cert.cer`。
+5. 在 IIS 建一個有自己主機名稱的站台,用公司憑證綁定 443 的 https。站台資料夾裡只要放這個 `web.config`
+   (安裝時用了別的 `--port`,就把 `8443` 改掉):
+
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <configuration>
+     <system.webServer>
+       <rewrite>
+         <rules>
+           <rule name="SqlLookout" stopProcessing="true">
+             <match url="(.*)" />
+             <serverVariables>
+               <set name="HTTP_X_FORWARDED_PROTO" value="https" />
+               <set name="HTTP_X_FORWARDED_HOST" value="{HTTP_HOST}" />
+             </serverVariables>
+             <action type="Rewrite" url="https://127.0.0.1:8443/{R:1}" />
+           </rule>
+         </rules>
+       </rewrite>
+     </system.webServer>
+   </configuration>
+   ```
+
+6. 開啟 `https://<站台名稱>/`。遠端 MCP 的位址就是 `https://<站台名稱>/mcp`,**設定 > MCP 存取金鑰**頁面顯示的也是這個位址。
+
+* SqlLookout 只相信本機轉送程式送來的 `X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Host` 標頭,其他來源送的一律不理。
+  不支援轉送程式放在另一台電腦。
+* ARR 會把訪客的位址放在 `X-Forwarded-For` 裡(ARR 轉送設定中的「Preserve client IP」,預設開啟)。請保持開啟:
+  關掉的話,每個訪客看起來都像是本機,原本只能在伺服器本機開的首次設定頁,在管理員帳號建立前任何人都能開。請先建立管理員帳號。
+* 請給 SqlLookout 一個獨立的站台或主機名稱,不能放在其他站台的子路徑(例如 `/sqllookout/`)底下。
+
 ## 看懂各頁面
 
 * **Dashboard**:每台伺服器一列,最嚴重的排最前面(連不上、嚴重、警告、正常、暫停),附問題數量、六小時 CPU 線、最低的磁碟剩餘 %、

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
 using SqlLookout.Core;
 using SqlLookout.Mcp;
@@ -76,6 +77,14 @@ public static class SqlLookoutWeb
 
     public static void Map(WebApplication app)
     {
+        // Behind a reverse proxy on the same machine (IIS with ARR, for example) every request arrives from loopback.
+        // The proxy's X-Forwarded-* headers then give the real client address (so first-time setup stays local-only
+        // and key throttling counts each client), the scheme and the host name. Only a proxy on this machine is
+        // believed: the framework default trusts loopback alone, so a client connecting directly cannot fake them.
+        app.UseForwardedHeaders(new ForwardedHeadersOptions
+        {
+            ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+        });
         app.Use(SecurityHeaders);
         app.Use(LogSlowRequests);
         // /mcp is judged by its bearer key alone and answers in English; everything else is the signed-in web interface.

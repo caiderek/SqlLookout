@@ -104,6 +104,67 @@ connection string protected with Windows DPAPI in the data folder; you can delet
 * The MCP server opened with a store file only reads: the program refuses every write on that connection. For a second
   layer give its login only `db_datareader`.
 
+### Put it behind IIS (optional)
+
+SqlLookout cannot be added to IIS as a web application. The web pages and the monitoring run in one process, and IIS
+stops an idle application and recycles it from time to time, so checks and alerts would stop with it. Keep the Windows
+service and let an IIS site on **the same machine** forward to it. The usual reason is a company certificate and name
+(`https://sqllookout.example.com/`) on port 443; a remote MCP client such as Claude Code then trusts the endpoint too.
+
+1. Install SqlLookout so that only this machine can reach it: `sqllookout.exe install --listen 127.0.0.1`
+   (no firewall rule is added). Already installed? Run `sqllookout.exe upgrade` from a build that has this section,
+   which also writes `cert.cer`, then switch to `--listen 127.0.0.1` by uninstalling and installing again with
+   `--data C:\ProgramData\SqlLookout` so the data is kept.
+2. Install the IIS modules **URL Rewrite** and **Application Request Routing (ARR)** from Microsoft.
+3. In an administrator PowerShell, turn on ARR's proxy and allow the two headers the rule sets:
+
+   ```
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_PROTO']" /commit:apphost
+   & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_FORWARDED_HOST']" /commit:apphost
+   ```
+
+4. IIS checks SqlLookout's certificate and refuses the self-signed one (502 error) until this machine trusts it.
+   SqlLookout writes the public half of it as `cert.cer` in the data folder (no private key in it):
+
+   ```
+   Import-Certificate -FilePath C:\ProgramData\SqlLookout\cert.cer -CertStoreLocation Cert:\LocalMachine\Root
+   ```
+
+   The self-signed certificate is valid for 5 years and is replaced 30 days before it ends; import the new `cert.cer` then.
+5. Make an IIS site for its own host name with an https binding on 443 and your company certificate. Its folder only needs
+   this `web.config` (change `8443` if you installed with another `--port`):
+
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <configuration>
+     <system.webServer>
+       <rewrite>
+         <rules>
+           <rule name="SqlLookout" stopProcessing="true">
+             <match url="(.*)" />
+             <serverVariables>
+               <set name="HTTP_X_FORWARDED_PROTO" value="https" />
+               <set name="HTTP_X_FORWARDED_HOST" value="{HTTP_HOST}" />
+             </serverVariables>
+             <action type="Rewrite" url="https://127.0.0.1:8443/{R:1}" />
+           </rule>
+         </rules>
+       </rewrite>
+     </system.webServer>
+   </configuration>
+   ```
+
+6. Open `https://<the site's name>/`. Remote MCP is then at `https://<the site's name>/mcp`, which is also what
+   **Settings > MCP access keys** shows.
+
+* SqlLookout believes the `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers only from a proxy on
+  this machine; from anywhere else they are ignored. A proxy on another machine is not supported.
+* ARR sends the visitor's address in `X-Forwarded-For` (ARR's proxy setting "Preserve client IP", on by default).
+  Leave it on: without it every visitor looks like this machine, and the first-time setup page, which is otherwise only
+  open on the server itself, would open for anyone until the administrator account exists. Create that account first.
+* Give SqlLookout a site or host name of its own. It cannot live under a path such as `/sqllookout/` of another site.
+
 ## Reading the pages
 
 * **Dashboard**: one line per server, worst first (unreachable, critical, warning, healthy, paused), with the problem
