@@ -130,6 +130,8 @@ public sealed class AlertSettings
     public TeamsSettings? Teams { get; set; }
     public AlertThresholds Thresholds { get; set; } = new();
     public List<string> DisabledRules { get; set; } = [];
+    /// <summary>Rules that are checked and shown, but whose problems are not mailed or posted to Teams.</summary>
+    public List<string> NoMailRules { get; set; } = [];
     public double RenotifyHours { get; set; } = 4;
     /// <summary>Warnings are not mailed at once; they appear in the daily summary. Critical problems still go out at once.</summary>
     public bool WarningsInSummaryOnly { get; set; }

@@ -22,6 +22,13 @@ public sealed class AlertThresholds
     public double DiskFallCriticalHours { get; set; } = 1;
     public double DiskFallWindowHours { get; set; } = 2;
 
+    // A database (data plus log) that grew this much within the window: by size, or by percentage and at least a minimum size.
+    public double DbGrowthWindowHours { get; set; } = 24;
+    public double DbGrowthWarnGb { get; set; } = 20;
+    public double DbGrowthCriticalGb { get; set; } = 50;
+    public double DbGrowthWarnPercent { get; set; } = 30;
+    public double DbGrowthPercentMinGb { get; set; } = 5;
+
     public double LogWarnPercent { get; set; } = 80;
     public double LogCriticalPercent { get; set; } = 90;
     /// <summary>Logs smaller than this never alert on percentage; 95% of a 2 MB log means nothing.</summary>
@@ -141,6 +148,11 @@ public sealed class AlertThresholds
 
         Order(FullBackupWarnHours, FullBackupCriticalHours, Loc.T("backup age"));
         Order(DbccWarnDays, DbccCriticalDays, Loc.T("DBCC CHECKDB age"));
+        Order(DbGrowthWarnGb, DbGrowthCriticalGb, Loc.T("database growth"));
+        if (DbGrowthWindowHours is < 1 or > 168) throw new InvalidDataException(Loc.T("The database growth window must be between 1 and 168 hours."));
+        if (!(DbGrowthWarnPercent > 0 && DbGrowthPercentMinGb >= 0))
+            throw new InvalidDataException(Loc.T("For database growth, the percentage must be above zero and its smallest size cannot be negative."));
+
         Order(LogWarnPercent, LogCriticalPercent, Loc.T("log usage"));
         if (LogCriticalPercent > 100) throw new InvalidDataException(Loc.T("For log usage, the percentages cannot be above 100."));
         if (LogMinSizeMb < 0) throw new InvalidDataException(Loc.T("The smallest log size to watch cannot be negative."));

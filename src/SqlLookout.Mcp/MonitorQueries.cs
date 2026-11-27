@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SqlLookout.Alerts;
 using SqlLookout.Core;
 using SqlLookout.Storage;
 
@@ -91,7 +93,7 @@ public sealed class MonitorQueries(IHistoryStore store)
     {
         instance = await RequireInstanceAsync(instance, scope, ct);
         if (string.IsNullOrWhiteSpace(metric)) throw new ArgumentException("metric is required (see get_overview for the names).");
-        if (!(hours > 0) || hours > MaxHours) throw new ArgumentException($"hours must be above 0 and at most {MaxHours}.");
+        RequireHours(hours);
         if (maxPoints is < 2 or > MaxPoints) throw new ArgumentException($"maxPoints must be between 2 and {MaxPoints}.");
 
         var series = await store.GetSeriesAsync(instance, metric, string.IsNullOrEmpty(subject) ? null : subject, nowUtc.AddHours(-hours), ct);
@@ -110,6 +112,111 @@ public sealed class MonitorQueries(IHistoryStore store)
             shown = shown.Count,
             samples = shown.Select(p => new { utc = Utc(p.Utc), value = p.Value }).ToList(),
         };
+    }
+
+    public const int StaleMinutes = 15;
+    /// <summary>
+    /// The monitor stamps a change with the time its check pass started and stores it after the mail has gone out, so a very
+    /// recent change may not be readable yet. Changes are reported once they are this old.
+    /// </summary>
+    public const int SettleSeconds = 120;
+    private const int GrowthRows = 100;
+
+    public async Task<object> GetDatabaseGrowthAsync(string instance, double hours, DateTime nowUtc, CancellationToken ct, InstanceScope? scope = null)
+    {
+        instance = await RequireInstanceAsync(instance, scope, ct);
+        RequireHours(hours);
+        var latest = await store.GetLatestAsync(instance, ct);
+        var rows = await DatabaseGrowth.ReadAsync(store, instance, latest, nowUtc.AddHours(-hours), ct);
+        var sizes = latest.Where(s => s.Collector == DatabaseGrowth.Collector).ToList();
+        return new
+        {
+            instance, hours,
+            sizesReadUtc = sizes.Count == 0 ? null : Utc(sizes.Max(s => s.CollectedUtc)),
+            note = rows.Count == 0 ? "No file size samples in the period." : null,
+            truncated = rows.Count > GrowthRows ? true : (bool?)null,
+            databases = rows.Take(GrowthRows).Select(GrowthRow).ToList(),
+        };
+    }
+
+    /// <summary>
+    /// One answer for a client that asks on a timer: what opened and what resolved since the last call, what grew, and which
+    /// servers have stopped delivering data. The caller passes back nextSinceUtc; nothing is stored here.
+    /// </summary>
+    public async Task<object> CheckChangesAsync(string? sinceUtc, double growthHours, DateTime nowUtc, CancellationToken ct, InstanceScope? scope = null)
+    {
+        RequireHours(growthHours);
+        // Stored times have whole seconds at most in the answer, so the cutoffs are kept to whole seconds too.
+        var now = new DateTime(nowUtc.Ticks - nowUtc.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+        var since = now.AddSeconds(-SettleSeconds).AddHours(-1);
+        if (!string.IsNullOrWhiteSpace(sinceUtc))
+        {
+            if (!DateTimeOffset.TryParse(sinceUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+                throw new ArgumentException("sinceUtc must be a time such as 2026-01-31T08:00:00Z.");
+            since = parsed.UtcDateTime;
+        }
+        if (since < now.AddHours(-MaxHours)) since = now.AddHours(-MaxHours);
+        var until = now.AddSeconds(-SettleSeconds);
+        if (until < since) until = since;
+
+        var visible = await VisibleInstancesAsync(scope, ct);
+        bool Mine(AlertRecord a) => visible.Contains(a.Instance, StringComparer.OrdinalIgnoreCase);
+        var log = (await store.GetAlertLogAsync(since, null, ct)).Where(Mine).ToList();
+        var open = (await store.GetActiveAlertsAsync(ct)).Where(Mine).ToList();
+
+        var stale = new List<object>();
+        var growth = new List<(string Instance, DatabaseGrowthRow Row)>();
+        foreach (var name in visible)
+        {
+            var latest = await store.GetLatestAsync(name, ct);
+            DateTime? last = latest.Count == 0 ? null : latest.Max(s => s.CollectedUtc);
+            var reach = await store.GetRecentRunsAsync(name, CollectorCatalog.Connectivity, 1, ct);
+            // A failed connection is not data: it is reported as a problem, and the age here is that of real readings.
+            if (reach.Count > 0 && reach[0].Status == CollectionStatus.Ok && (last is null || reach[0].StartedUtc > last)) last = reach[0].StartedUtc;
+            if (last is null || now - last.Value > TimeSpan.FromMinutes(StaleMinutes))
+                stale.Add(new { instance = name, lastDataUtc = last is { } l ? Utc(l) : null });
+            var rows = await DatabaseGrowth.ReadAsync(store, name, latest, now.AddHours(-growthHours), ct);
+            growth.AddRange(rows.Where(r => r.GrownMb >= 1024).Select(r => (name, r)));
+        }
+
+        // The window is (since, until]: a later change belongs to the next call, one at since was in the previous call.
+        bool InWindow(DateTime t) => t > since && t <= until;
+        var opened = log.Where(a => InWindow(a.FirstUtc)).Select(AlertRow).ToList();
+        var resolved = log.Where(a => a.ResolvedUtc is { } r && InWindow(r)).Select(AlertRow).ToList();
+        return new
+        {
+            sinceUtc = Utc(since),
+            nextSinceUtc = Utc(until),
+            changed = opened.Count > 0 || resolved.Count > 0 || stale.Count > 0,
+            opened,
+            resolved,
+            openCritical = open.Count(a => a.Severity == "Critical"),
+            openWarning = open.Count(a => a.Severity == "Warning"),
+            noRecentData = stale,
+            growthHours,
+            fastestGrowing = growth.OrderByDescending(g => g.Row.GrownMb).Take(10)
+                .Select(g => new { instance = g.Instance, growth = GrowthRow(g.Row) }).ToList(),
+        };
+    }
+
+    private static object AlertRow(AlertRecord a) => new
+    {
+        instance = a.Instance, severity = a.Severity, title = a.Title, detail = a.Detail,
+        sinceUtc = Utc(a.FirstUtc), resolvedUtc = a.ResolvedUtc is { } r ? Utc(r) : null,
+    };
+
+    private static object GrowthRow(DatabaseGrowthRow r) => new
+    {
+        database = r.Database,
+        sizeMb = r.SizeMb, dataMb = r.DataMb, logMb = r.LogMb,
+        grownMb = r.GrownMb, dataGrownMb = r.DataGrownMb, logGrownMb = r.LogGrownMb,
+        grownPercent = r.GrownPercent is { } p ? Math.Round(p, 1) : (double?)null,
+        comparedWithUtc = Utc(r.SinceUtc),
+    };
+
+    private static void RequireHours(double hours)
+    {
+        if (!(hours > 0) || hours > MaxHours) throw new ArgumentException($"hours must be above 0 and at most {MaxHours}.");
     }
 
     /// <summary>Evenly spaced picks that always keep the first and the last point.</summary>

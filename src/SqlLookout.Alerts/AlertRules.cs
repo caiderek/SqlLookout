@@ -19,6 +19,7 @@ public static class AlertRules
     public const string RuleDbcc = "dbcc";
     public const string RuleDisk = "disk";
     public const string RuleLog = "log";
+    public const string RuleDbGrowth = "db_growth";
     public const string RuleDatabaseState = "database_state";
     public const string RuleSuspectPages = "suspect_pages";
     public const string RuleJobs = "jobs";
@@ -212,6 +213,26 @@ public static class AlertRules
             return new(Key(instance, "disk", volume), instance, Severity.Warning, Loc.T("Disk {0} is running low", volume), detail);
         return null;
     }
+
+    /// <summary>All databases of one instance that grew too much within the window become one finding.</summary>
+    public static Finding? DbGrowthFinding(string instance, IReadOnlyList<DatabaseGrowthRow> rows, AlertThresholds t)
+    {
+        const double Mb = 1024;
+        var hits = rows.Where(r => r.GrownMb >= t.DbGrowthWarnGb * Mb
+                || (r.GrownMb > 0 && r.GrownMb >= t.DbGrowthPercentMinGb * Mb && r.GrownPercent >= t.DbGrowthWarnPercent))
+            .OrderByDescending(r => r.GrownMb).ToList();
+        if (hits.Count == 0) return null;
+        var severity = hits[0].GrownMb >= t.DbGrowthCriticalGb * Mb ? Severity.Critical : Severity.Warning;
+        var list = string.Join("\n", hits.Take(20).Select(GrowthLine));
+        if (hits.Count > 20) list += "\n" + Loc.T("and {0} more", hits.Count - 20);
+        return new(Key(instance, "dbgrowth", ""), instance, severity,
+            Loc.T("Fast database growth: {0} database(s)", hits.Count),
+            Loc.T("Grown within {0:0.#} h (warning from {1:0.#} GB, critical from {2:0.#} GB):", t.DbGrowthWindowHours, t.DbGrowthWarnGb, t.DbGrowthCriticalGb) + "\n" + list);
+    }
+
+    public static string GrowthLine(DatabaseGrowthRow r) =>
+        Loc.T("{0}: +{1:0.#} GB, now {2:0.#} GB (data {3:+0.#;-0.#;0} GB, log {4:+0.#;-0.#;0} GB)",
+            r.Database, r.GrownMb / 1024, r.SizeMb / 1024, r.DataGrownMb / 1024, r.LogGrownMb / 1024);
 
     /// <summary>
     /// Predicts when a volume fills up from a least-squares line through recent free-space samples.

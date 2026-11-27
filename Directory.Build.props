@@ -1,7 +1,7 @@
 <Project>
 
   <PropertyGroup>
-    <Version>0.9.24</Version>
+    <Version>0.9.25</Version>
     <Authors>Derek</Authors>
     <Company>Derek</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

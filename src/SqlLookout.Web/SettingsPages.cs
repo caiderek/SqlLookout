@@ -21,6 +21,7 @@ internal static partial class SettingsPages
         (AlertRules.RuleDbcc, () => Loc.T("DBCC CHECKDB too old or never run")),
         (AlertRules.RuleDisk, () => Loc.T("Low disk space and fast-falling disk space")),
         (AlertRules.RuleLog, () => Loc.T("Transaction log nearly full")),
+        (AlertRules.RuleDbGrowth, () => Loc.T("Database grew too fast")),
         (AlertRules.RuleDatabaseState, () => Loc.T("Database offline, suspect or in recovery trouble")),
         (AlertRules.RuleSuspectPages, () => Loc.T("Suspect pages found")),
         (AlertRules.RuleJobs, () => Loc.T("SQL Agent job failed or running long")),
@@ -55,6 +56,11 @@ internal static partial class SettingsPages
         nameof(AlertThresholds.DiskFallWarnHours) => Loc.T("Disk fall rate: warning if full within (hours)"),
         nameof(AlertThresholds.DiskFallCriticalHours) => Loc.T("Disk fall rate: critical if full within (hours)"),
         nameof(AlertThresholds.DiskFallWindowHours) => Loc.T("Disk fall rate: trend window (hours)"),
+        nameof(AlertThresholds.DbGrowthWindowHours) => Loc.T("Database growth: measured over (hours)"),
+        nameof(AlertThresholds.DbGrowthWarnGb) => Loc.T("Database growth: warning from (GB)"),
+        nameof(AlertThresholds.DbGrowthCriticalGb) => Loc.T("Database growth: critical from (GB)"),
+        nameof(AlertThresholds.DbGrowthWarnPercent) => Loc.T("Database growth: also warn from (% of its earlier size)"),
+        nameof(AlertThresholds.DbGrowthPercentMinGb) => Loc.T("Database growth: the percentage counts only from (GB)"),
         nameof(AlertThresholds.LogWarnPercent) => Loc.T("Log usage: warning above (%)"),
         nameof(AlertThresholds.LogCriticalPercent) => Loc.T("Log usage: critical above (%)"),
         nameof(AlertThresholds.LogMinSizeMb) => Loc.T("Log usage: ignore logs smaller than (MB)"),
@@ -135,7 +141,7 @@ internal static partial class SettingsPages
             var storedLook = (await store.GetGlobalAsync(ctx.RequestAborted)).Look;
             try
             {
-                (alerts, global) = Parse(form, storedLook);
+                (alerts, global) = Parse(form, storedLook, (await store.GetAlertSettingsAsync(ctx.RequestAborted)).NoMailRules);
                 await store.SaveSettingsAsync(alerts, global, form["email_password"].ToString(), form["email_clear_password"] == "1", ctx.RequestAborted,
                     newTeamsUrl: form["teams_url"].ToString().Trim(), clearTeamsUrl: form["teams_clear_url"] == "1");
             }
@@ -339,10 +345,20 @@ internal static partial class SettingsPages
             </section>
             """);
 
-        sb.Append($"""<section class="card"><h2 style="margin-top:0">{H.E(Loc.T("What to check"))}</h2><h3>{H.E(Loc.T("Alert on"))}</h3>""");
+        sb.Append($"""
+            <section class="card"><h2 style="margin-top:0">{H.E(Loc.T("What to check"))}</h2>
+              <p class="muted small">{H.E(Loc.T("Untick \"Send mail\" to keep checking something and showing it on the Problems page without mail or Teams messages."))}</p>
+              <input type="hidden" name="mail_choices" value="1">
+              <table><thead><tr><th>{H.E(Loc.T("Alert on"))}</th><th>{H.E(Loc.T("Send mail"))}</th></tr></thead><tbody>
+            """);
         foreach (var (rule, label) in Rules)
-            sb.Append(H.Check(label(), "rule_" + rule, !a.DisabledRules.Contains(rule, StringComparer.OrdinalIgnoreCase)));
-        sb.Append($"<h3>{H.E(Loc.T("Run these checks"))}</h3>");
+        {
+            var mail = HasMailChoice(rule)
+                ? $"""<input type="checkbox" name="mail_{H.E(rule)}" value="1" aria-label="{H.E(Loc.T("Send mail"))}: {H.E(label())}"{(a.NoMailRules.Contains(rule, StringComparer.OrdinalIgnoreCase) ? "" : " checked")}>"""
+                : "";
+            sb.Append($"<tr><td>{H.Check(label(), "rule_" + rule, !a.DisabledRules.Contains(rule, StringComparer.OrdinalIgnoreCase))}</td><td>{mail}</td></tr>");
+        }
+        sb.Append($"</tbody></table><h3>{H.E(Loc.T("Run these checks"))}</h3>");
         foreach (var c in CollectorCatalog.All())
             sb.Append(H.Check(CollectorLabel(c.Name), "col_" + c.Name, !g.DisabledCollectors.Contains(c.Name, StringComparer.OrdinalIgnoreCase)));
         sb.Append("</section>");
@@ -376,7 +392,10 @@ internal static partial class SettingsPages
         return sb.ToString();
     }
 
-    private static (AlertSettings, GlobalSettings) Parse(IFormCollection form, string currentLook)
+    /// <summary>The system database switch only narrows the backup rule, so its mail follows that rule.</summary>
+    private static bool HasMailChoice(string rule) => rule != AlertRules.RuleSystemDbBackup;
+
+    private static (AlertSettings, GlobalSettings) Parse(IFormCollection form, string currentLook, List<string> currentNoMail)
     {
         string F(string key) => form[key].ToString().Trim();
         double Number(string key, string label)
@@ -420,6 +439,10 @@ internal static partial class SettingsPages
         alerts.QuietEnd = F("quiet_end") is { Length: > 0 } qe ? qe : null;
 
         alerts.DisabledRules = Rules.Where(r => form["rule_" + r.Rule] != "1").Select(r => r.Rule).ToList();
+        // A form without the mail column keeps the stored choices; reading it as "nothing ticked" would silence every mail.
+        alerts.NoMailRules = form.ContainsKey("mail_choices")
+            ? Rules.Where(r => HasMailChoice(r.Rule) && form["mail_" + r.Rule] != "1").Select(r => r.Rule).ToList()
+            : currentNoMail;
 
         foreach (var p in ThresholdProperties)
         {

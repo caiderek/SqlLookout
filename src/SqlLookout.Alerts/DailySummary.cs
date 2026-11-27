@@ -12,15 +12,19 @@ public static class DailySummary
 {
     /// <param name="current">The problems found right now. When given, the summary lists these (warnings that were never mailed included) with their details; otherwise it lists the alerts that were mailed.</param>
     public static async Task<string> BuildAsync(IHistoryStore store, IReadOnlyList<string> instances, DateTime nowUtc,
-        IReadOnlyList<Finding>? current = null, CancellationToken ct = default)
+        IReadOnlyList<Finding>? current = null, CancellationToken ct = default, IReadOnlySet<string>? noMailRules = null)
     {
         var text = new StringBuilder();
         text.AppendLine(Loc.T("SqlLookout daily summary, {0:yyyy-MM-dd HH:mm} UTC", nowUtc));
         text.AppendLine();
 
         var active = await store.GetActiveAlertsAsync(ct);
+        var notListed = 0;
         if (current is not null)
         {
+            var all = current.Count;
+            current = current.Where(f => MailChoices.IsMailed(f.Key, noMailRules)).ToList();
+            notListed = all - current.Count;
             var firstSeen = active.ToDictionary(a => a.Key, a => a.FirstUtc);
             var mutes = (await AlertMutes.ListAsync(store, ct)).ToDictionary(m => m.Key);
             text.AppendLine(current.Count == 0 ? Loc.T("No active alerts.") : Loc.T("{0} active alert(s):", current.Count));
@@ -37,6 +41,9 @@ public static class DailySummary
         }
         else
         {
+            var all = active.Count;
+            active = active.Where(a => MailChoices.IsMailed(a.Key, noMailRules)).ToList();
+            notListed = all - active.Count;
             text.AppendLine(active.Count == 0 ? Loc.T("No active alerts.") : Loc.T("{0} active alert(s):", active.Count));
             foreach (var a in active.OrderByDescending(a => a.Severity).ThenBy(a => a.Instance))
             {
@@ -44,6 +51,7 @@ public static class DailySummary
                 text.AppendLine($"  [{tag}] {a.Instance}: {a.Title}  " + Loc.T("(since {0:yyyy-MM-dd HH:mm} UTC)", a.FirstUtc));
             }
         }
+        if (notListed > 0) text.AppendLine(Loc.T("{0} more problem(s) of kinds that are set not to be mailed: see the Problems page.", notListed));
         text.AppendLine();
 
         foreach (var instance in instances)

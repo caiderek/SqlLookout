@@ -241,12 +241,12 @@ public sealed class RemoteMcpTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_remote_server_lists_the_six_read_only_tools()
+    public async Task The_remote_server_lists_the_eight_read_only_tools()
     {
         await using var client = await ConnectAsync(await KeyAsync());
         var tools = await client.ListToolsAsync();
         Assert.Equal(
-            ["get_blocking", "get_metric_history", "get_overview", "get_problems", "get_running_queries", "list_instances"],
+            ["check_changes", "get_blocking", "get_database_growth", "get_metric_history", "get_overview", "get_problems", "get_running_queries", "list_instances"],
             tools.Select(t => t.Name).Order().ToList());
         Assert.All(tools, t => Assert.True(t.ProtocolTool.Annotations?.ReadOnlyHint == true));
     }

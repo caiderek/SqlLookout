@@ -65,7 +65,7 @@ public sealed record DigestSchedule(TimeSpan Start, TimeSpan Every)
 /// </summary>
 public sealed class AlertDispatcher(IHistoryStore store, IAlertSender sender, TimeSpan renotifyAfter, QuietHours? quiet,
     TimeSpan resolveAfter = default, bool warningsInSummaryOnly = false,
-    DigestSchedule? digest = null, IReadOnlySet<string>? urgentKinds = null, bool mergeHosts = true)
+    DigestSchedule? digest = null, IReadOnlySet<string>? urgentKinds = null, bool mergeHosts = true, IReadOnlySet<string>? noMailRules = null)
 {
     private const string DigestSlotState = "digest.last_slot";
 
@@ -85,6 +85,17 @@ public sealed class AlertDispatcher(IHistoryStore store, IAlertSender sender, Ti
         var toSend = new List<(Finding Finding, string Why)>();
         foreach (var f in findings)
         {
+            if (!MailChoices.IsMailed(f.Key, noMailRules))
+            {
+                // Recorded without a mail, so it shows as a problem. The notification time is kept: once mail is turned
+                // back on, a problem nobody was told about goes out as new.
+                var seen = active.GetValueOrDefault(f.Key);
+                if (seen is null || seen.Severity != f.Severity.ToString() || seen.Title != f.Title)
+                    await store.UpsertAlertAsync(new AlertRecord(f.Key, f.Instance, f.Severity.ToString(), f.Title, f.Detail,
+                        seen?.FirstUtc ?? nowUtc, seen?.LastNotifiedUtc ?? MailChoices.NeverMailed, null), ct);
+                continue;
+            }
+
             if ((isQuiet || warningsInSummaryOnly) && f.Severity == Severity.Warning) continue;
             if (Held(f)) continue;
 
@@ -96,7 +107,7 @@ public sealed class AlertDispatcher(IHistoryStore store, IAlertSender sender, Ti
                 await AlertMutes.ClearAsync(store, f.Key, ct);
             }
 
-            if (!active.TryGetValue(f.Key, out var existing))
+            if (!active.TryGetValue(f.Key, out var existing) || MailChoices.WasNeverMailed(existing))
                 toSend.Add((f, Loc.T("new")));
             else if (f.Severity.ToString() != existing.Severity && f.Severity == Severity.Critical)
                 toSend.Add((f, Loc.T("escalated")));
@@ -129,9 +140,12 @@ public sealed class AlertDispatcher(IHistoryStore store, IAlertSender sender, Ti
             if (nowUtc - absentSince >= resolveAfter) resolved.Add(a);
         }
 
+        // A problem that nobody was mailed about, or of a kind that is not mailed, is closed without a mail and without waiting.
+        bool Unmailed(AlertRecord a) => MailChoices.WasNeverMailed(a) || !MailChoices.IsMailed(a.Key, noMailRules);
+
         // The resolved mail of a problem that is not urgent waits for the digest too (grace time above has already run).
         if (digest is not null && !digestDue)
-            resolved.RemoveAll(a => !(a.Severity == nameof(Severity.Critical) && urgentKinds is not null && urgentKinds.Contains(KindOf(a.Key))));
+            resolved.RemoveAll(a => !Unmailed(a) && !(a.Severity == nameof(Severity.Critical) && urgentKinds is not null && urgentKinds.Contains(KindOf(a.Key))));
 
         // A mute belongs to its problem: once the problem is gone for good, the mute goes with it, so the same problem
         // coming back later starts fresh. Within the grace time above, a problem that is only absent for a moment keeps it.
@@ -161,20 +175,21 @@ public sealed class AlertDispatcher(IHistoryStore store, IAlertSender sender, Ti
             }
         }
 
-        if (resolved.Count > 0)
+        var told = resolved.Where(a => !Unmailed(a)).ToList();
+        if (told.Count > 0)
         {
             var body = new StringBuilder();
-            foreach (var g in resolved.GroupBy(a => mergeHosts ? a.Title : a.Key).OrderBy(g => g.Key, StringComparer.Ordinal))
+            foreach (var g in told.GroupBy(a => mergeHosts ? a.Title : a.Key).OrderBy(g => g.Key, StringComparer.Ordinal))
             {
                 var hosts = g.Select(a => a.Instance).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
                 body.AppendLine($"[{Loc.T("RESOLVED")}] {string.Join(", ", hosts)}: {g.First().Title}");
             }
-            await sender.SendAsync(Loc.T("[SqlLookout] Resolved: {0} alert(s)", resolved.Count), body.ToString(), ct);
-            foreach (var a in resolved)
-            {
-                await store.ResolveAlertAsync(a.Key, nowUtc, ct);
-                await store.SetStateAsync(AbsentKey(a.Key), "", ct);
-            }
+            await sender.SendAsync(Loc.T("[SqlLookout] Resolved: {0} alert(s)", told.Count), body.ToString(), ct);
+        }
+        foreach (var a in resolved)
+        {
+            await store.ResolveAlertAsync(a.Key, nowUtc, ct);
+            await store.SetStateAsync(AbsentKey(a.Key), "", ct);
         }
 
         if (digest is not null && digestDue) await store.SetStateAsync(DigestSlotState, slot!, ct);

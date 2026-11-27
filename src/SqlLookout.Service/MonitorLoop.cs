@@ -202,7 +202,7 @@ public sealed class MonitorLoop(Func<SqlLookoutConfig> getConfig, IHistoryStore 
         var disabledRules = config.Alerts.DisabledRules.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var evaluator = new AlertEvaluator(store, config.Alerts.Thresholds, disabledRules, config.IgnoredFor, config.ThresholdsFor);
         var dispatcher = new AlertDispatcher(store, sender, TimeSpan.FromHours(config.Alerts.RenotifyHours), config.Alerts.Quiet(), TimeSpan.FromMinutes(config.Alerts.ResolveAfterMinutes), config.Alerts.WarningsInSummaryOnly,
-            config.Alerts.Digest(), config.Alerts.UrgentKinds.ToHashSet(StringComparer.OrdinalIgnoreCase), config.Alerts.MergeHosts);
+            config.Alerts.Digest(), config.Alerts.UrgentKinds.ToHashSet(StringComparer.OrdinalIgnoreCase), config.Alerts.MergeHosts, NoMail(config));
         var names = config.Instances.Where(i => i.Enabled).Select(i => i.Name).ToList();
 
         var findings = new List<Finding>();
@@ -225,10 +225,12 @@ public sealed class MonitorLoop(Func<SqlLookoutConfig> getConfig, IHistoryStore 
         var today = local.ToString("yyyy-MM-dd");
         if (local.TimeOfDay < at.Value || await store.GetStateAsync("summary.last_sent", ct) == today) return;
 
-        var body = await DailySummary.BuildAsync(store, names, nowUtc, findings, ct);
+        var body = await DailySummary.BuildAsync(store, names, nowUtc, findings, ct, NoMail(config));
         await sender.SendAsync("[SqlLookout] Daily summary", body, ct);
         await store.SetStateAsync("summary.last_sent", today, ct);
     }
+
+    private static HashSet<string> NoMail(SqlLookoutConfig config) => config.Alerts.NoMailRules.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static TimeSpan IntervalFor(SqlLookoutConfig config, ICollector c) =>
         config.IntervalsSeconds.TryGetValue(c.Name, out var seconds) && seconds > 0 ? TimeSpan.FromSeconds(seconds) : c.DefaultInterval;

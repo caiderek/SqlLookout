@@ -201,7 +201,8 @@ service and let an IIS site on **the same machine** forward to it. The usual rea
 | Disk free space | under 20% or 10 GB (warning) / 10% or 5 GB (critical) |
 | Disk fall rate | the recent trend fills the volume within 4 h (warning) / 1 h (critical) |
 | Log usage | over 80% / 90% (logs under 100 MB are ignored); one alert per instance that lists the databases, worst first (20 at most) |
-| File sizes | recorded for history, no alert |
+| File sizes | recorded for history; feeds the growth alert below |
+| Database growth | a database (data plus log) grew 20 GB, or 30% and at least 5 GB, within 24 h (warning) / 50 GB (critical); one alert per instance, largest first. Disk space alerts also list the databases that grew most. Files that are not database files only show up as falling free space |
 | SQL Agent jobs | last run failed (critical), running over 2x its average (warning) |
 | CPU | machine CPU at or above 90% for 10 minutes (warning) |
 | Blocking | a session has been blocked 60 s or more (warning) / 300 s or more (critical); names the head blocker |
@@ -232,6 +233,11 @@ A problem you already know about can be silenced from its row on the server's Pr
 
 Every limit can be changed on the Settings page, and each alert group can be switched off. SQL Server 2008 and
 later; Express is supported (no Agent checks there).
+
+**Choose what is mailed:** Settings, What to check has a **Send mail** column. Unticked, the rule is still checked and its
+problems show on the Problems page and in MCP, but no mail or Teams message goes out, and the daily summary only counts
+them. "Cannot connect" and "a check keeps failing" are always mailed. Problems are recorded only when email or Teams is
+set up.
 
 A problem is mailed once, again after the repeat time while it stays active, immediately if it gets worse, and once
 more when it clears. The daily summary mail doubles as the "is the service still alive" check: if it stops arriving,
@@ -282,7 +288,7 @@ sqllookout mcp --data <folder>      # the same data folder as 'sqllookout web'
 
 A read-only MCP server over stdio. It opens the history file in SQLite's read-only mode, so it cannot change anything
 the monitor recorded and never connects to your SQL Servers. Tools: `list_instances`, `get_problems`, `get_overview`,
-`get_metric_history`. Names in the answers (databases, jobs, logins) come from the monitored servers and are untrusted
+`get_metric_history`, `get_database_growth`, `check_changes`. Names in the answers (databases, jobs, logins) come from the monitored servers and are untrusted
 text. Example client entry:
 
 ```json
@@ -290,6 +296,26 @@ text. Example client entry:
 ```
 
 The account that runs the client needs read access to the data folder; the monitor keeps running while it is used.
+
+### Periodic checks
+
+An MCP server only answers, so the AI client has to ask on a timer. `check_changes` returns what opened and resolved
+since the last call, how many problems are open, the databases that grew most, and servers with no data for 15 minutes.
+A change appears about two minutes after it happens.
+
+With the server registered under the name `sqllookout`, while Claude Code is open:
+
+```
+/loop 15m Call the sqllookout check_changes tool, passing the last nextSinceUtc as sinceUtc. Report only when changed is true. Change nothing.
+```
+
+Unattended, from Windows Task Scheduler. Run it hourly (each run covers one hour) and send the output to a file:
+
+```
+claude -p "Call check_changes from the sqllookout MCP server and summarize the result. Change nothing." --allowedTools "mcp__sqllookout__check_changes" >> C:\Logs\sqllookout-check.log
+```
+
+Mail and Teams alerts remain the primary way to be told: they need no AI client running.
 
 ### From another computer (https, with a key)
 
@@ -310,7 +336,7 @@ without access to the data folder.
   counted, so they cannot lock out other people behind the same address. While an address is refused, everything from it
   gets 429, a valid key included, so someone who can send 10 bad keys from your network can block that address for 5
   minutes. A valid key from another address is never limited.
-* The remote endpoint has the four tools above plus two that **connect to the monitored server when called** and need
+* The remote endpoint has the six tools above plus two that **connect to the monitored server when called** and need
   `VIEW SERVER STATE` (the read-only login from `sql/create-readonly-login.sql` has it):
   `get_running_queries` (queries running now and the 15 costliest cached statements) and `get_blocking` (who blocks whom,
   including a head blocker that is idle with an open transaction). They run SELECTs only and store nothing. To protect the
@@ -322,7 +348,7 @@ without access to the data folder.
   as for one that does not exist. Deleted servers disappear from the answers at once.
 * **A key can read monitoring data and the text of running queries, which can contain data.** Give each person or tool its
   own key, keep keys out of shared files, and revoke one when it is no longer needed.
-* The stdio server above does not use keys and never connects to a SQL Server; it only has the four history tools.
+* The stdio server above does not use keys and never connects to a SQL Server; it only has the six history tools.
 * The default certificate is self-signed, so a client that checks certificates refuses it. Use `--cert` with a certificate
   your computers already trust (for example one from your company's CA, issued for this machine's name). The self-signed
   certificate is made for `localhost`, the machine name and its full DNS name, so connect with one of those. Claude Code refuses the self-signed certificate, so give the endpoint a certificate from a CA your machines trust.

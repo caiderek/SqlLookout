@@ -47,6 +47,26 @@ public sealed class MonitorTools(MonitorQueries queries, IInstanceScopeSource sc
         CancellationToken ct = default) =>
         await Run(async () => MonitorQueries.ToJson(await queries.GetMetricHistoryAsync(instance, metric, subject, hours, maxPoints, DateTime.UtcNow, ct, scope.Current)));
 
+    [McpServerTool(Name = "get_database_growth", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("How much each database of one instance grew over a period, data and log separately, largest growth first. " +
+                 "Use it to find what is filling a disk." + Untrusted)]
+    public async Task<string> GetDatabaseGrowthAsync(
+        [Description("Instance name as shown by list_instances.")] string instance,
+        [Description("How far back to compare, in hours. Default 24, at most 720.")] double hours = 24,
+        CancellationToken ct = default) =>
+        await Run(async () => MonitorQueries.ToJson(await queries.GetDatabaseGrowthAsync(instance, hours, DateTime.UtcNow, ct, scope.Current)));
+
+    [McpServerTool(Name = "check_changes", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("For periodic monitoring: problems that opened or resolved since a given time, how many are still open, the databases " +
+                 "that grew most, and servers with no data for 15 minutes (the monitor or the server may be down). Call it on a timer and " +
+                 "pass the previous answer's nextSinceUtc as sinceUtc. When changed is false there is nothing new to report. A change appears " +
+                 "about two minutes after it happens; the open counts are current." + Untrusted)]
+    public async Task<string> CheckChangesAsync(
+        [Description("nextSinceUtc of the previous call, e.g. 2026-01-31T08:00:00Z. Leave empty for the last hour.")] string? sinceUtc = null,
+        [Description("Period for the database growth list, in hours. Default 24, at most 720.")] double growthHours = 24,
+        CancellationToken ct = default) =>
+        await Run(async () => MonitorQueries.ToJson(await queries.CheckChangesAsync(sinceUtc, growthHours, DateTime.UtcNow, ct, scope.Current)));
+
     private static async Task<string> Run(Func<Task<string>> body)
     {
         try

@@ -167,7 +167,7 @@ public sealed class McpTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_real_program_serves_the_four_tools_over_stdio_while_the_monitor_keeps_writing()
+    public async Task The_real_program_serves_the_history_tools_over_stdio_while_the_monitor_keeps_writing()
     {
         await SeedAsync();
         var dll = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "SqlLookout.Cli", "bin",
@@ -182,7 +182,7 @@ public sealed class McpTests : IAsyncLifetime
         }));
 
         var tools = (await client.ListToolsAsync()).Select(t => t.Name).Order().ToList();
-        Assert.Equal(["get_metric_history", "get_overview", "get_problems", "list_instances"], tools);
+        Assert.Equal(["check_changes", "get_database_growth", "get_metric_history", "get_overview", "get_problems", "list_instances"], tools);
         Assert.All(await client.ListToolsAsync(), t => Assert.Equal(true, t.ProtocolTool.Annotations?.ReadOnlyHint));
 
         // The monitor writes after the server has started: the server must see it and the write must not be blocked.

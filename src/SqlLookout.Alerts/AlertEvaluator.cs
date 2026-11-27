@@ -24,6 +24,25 @@ public sealed class AlertEvaluator(IHistoryStore store, AlertThresholds commonTh
             }
         }
 
+        if (latest.Any(s => s.Collector == DatabaseGrowth.Collector))
+        {
+            var ignored = ignoredDatabases?.Invoke(instance);
+            var rows = (await DatabaseGrowth.ReadAsync(store, instance, latest, nowUtc.AddHours(-thresholds.DbGrowthWindowHours), ct))
+                .Where(r => !DatabaseFilter.IsIgnored(ignored, r.Database)).ToList();
+            if (!disabledRules.Contains(AlertRules.RuleDbGrowth) && AlertRules.DbGrowthFinding(instance, rows, thresholds) is { } growth) findings.Add(growth);
+
+            // A disk problem names what grew, so the mail says where to look first. The list covers every volume of the server.
+            var top = rows.Where(r => r.GrownMb >= 1024).Take(3).ToList();
+            if (top.Count > 0)
+            {
+                var note = Loc.T("Databases that grew most in {0:0.#} h (any volume):", thresholds.DbGrowthWindowHours)
+                    + "\n" + string.Join("\n", top.Select(AlertRules.GrowthLine));
+                for (var i = 0; i < findings.Count; i++)
+                    if (findings[i].Key.Split('|') is [_, "disk" or "diskfall", ..])
+                        findings[i] = findings[i] with { Detail = findings[i].Detail + "\n" + note };
+            }
+        }
+
         if (!disabledRules.Contains(AlertRules.RuleCpu) && latest.Any(s => s.Sample.Metric == "cpu_total_percent"))
         {
             var series = await store.GetSeriesAsync(instance, "cpu_total_percent", null, nowUtc.AddMinutes(-thresholds.CpuSustainedMinutes), ct);

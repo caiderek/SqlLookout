@@ -8,7 +8,7 @@ namespace SqlLookout.Mcp;
 public static class McpServerHost
 {
     /// <summary>
-    /// Serves the four read-only tools over stdio until the client disconnects. The history file is opened read-only,
+    /// Serves the read-only history tools over stdio until the client disconnects. The history file is opened read-only,
     /// so the server cannot change what the monitor recorded even if a tool were wrong. stdout is the protocol channel:
     /// every log line goes to stderr.
     /// </summary>
